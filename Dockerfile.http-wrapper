@@ -1,0 +1,29 @@
+FROM --platform=$BUILDPLATFORM golang:1.24.3-alpine AS builder
+
+ARG TARGETPLATFORM
+
+WORKDIR /app
+
+# Build the main MCP binary first
+COPY go.mod go.sum ./
+RUN go mod download && go mod verify
+COPY . .
+RUN CGO_ENABLED=0 GOARCH=$(echo ${TARGETPLATFORM:-linux/amd64} | cut -d/ -f2) go build -o har-mcp cmd/har-mcp/main.go
+
+# Build the HTTP wrapper
+WORKDIR /app/http-wrapper
+COPY http-wrapper/go.mod ./
+RUN go mod download
+COPY http-wrapper/main.go ./
+RUN CGO_ENABLED=0 GOARCH=$(echo ${TARGETPLATFORM:-linux/amd64} | cut -d/ -f2) go build -o http-wrapper main.go
+
+FROM alpine:3.19.0
+
+# Copy both binaries
+COPY --from=builder /app/har-mcp /usr/local/bin/har-mcp
+COPY --from=builder /app/http-wrapper/http-wrapper /usr/local/bin/http-wrapper
+
+EXPOSE 8080
+
+ENTRYPOINT ["http-wrapper"]
+
